@@ -1,0 +1,104 @@
+---
+title: "Milestone Report"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Exploratory Analysis for text
+
+```{r setup}
+library(tm)
+library(tidyverse)
+library(stringr)
+library(ggplot2)
+```
+
+## Demonstrate that you've downloaded the data and have successfully loaded it in
+
+Files present in dataset:
+
+```{r load_data}
+src <- file.path("data", "en_US")
+en_us <- VCorpus(DirSource(src, encoding = "UTF-8"),
+                readerControl = list(language = "en"))
+inspect(en_us)
+```
+
+```{r read_partial}
+tokenize_file <- function(f) {
+  con <- file(f)
+  all <- readLines(con, -1)
+  close(con)
+  set.seed(1)
+  sample_keep <- rbinom(length(all), 1, 0.01) == 1
+  sample <- all[sample_keep]
+  str_extract_all(sample, "[a-zA-Z]+")
+}
+
+tokens <- tokenize_file(file.path("data", "en_us", "en_US.blogs.txt"))
+```
+
+
+```{r remove_profanities}
+profanities <- read.table(file.path("data", "swearWords.csv"), header = FALSE, stringsAsFactors = FALSE) %>%
+  unlist
+
+corp <- VCorpus(VectorSource(tokens))
+clean_corp <- corp %>% tm_map(removeWords, profanities)
+
+tdm <- TermDocumentMatrix(clean_corp)
+```
+## Create a basic report of summary statistics about the data sets.
+
+### Stats
+
+```{r line_counts}
+suppressWarnings(
+  word_count <- lapply(en_us, function(x) 
+    sum(unlist(map(x, 
+                   ~str_count(., '\\w+')))))
+)
+
+line_count <- lapply(en_us, function(x) length(x$content))
+
+df <- data.frame(file = names(word_count), word_count = unlist(word_count), line_count = unlist(line_count))
+
+df %>% ggplot(aes(y = word_count, x = file, fill = file)) + 
+  geom_col() + 
+  labs(title = "Word count in files")
+
+df %>% ggplot(aes(y = line_count, x = file, fill = file)) + 
+  geom_col() + 
+  labs(title = "Line count in files")
+```
+
+### Samples from each source
+
+#### Blogs
+
+```{r}
+head(en_us[[1]]$content, 5)
+```
+
+#### News
+
+```{r}
+head(en_us[[2]]$content, 5)
+```
+
+#### Twitter
+
+```{r}
+head(en_us[[3]]$content, 5)
+```
+
+### Sample terms in the documents
+
+```{r}
+inspect(tdm)
+```
+
+## Goal for app
+
+I plan to make an interactive Shiny app to predict words. The user can key in a sentence and it will predict the next word in the sentence. I plan to use ngrams for the predictive algorithm, with longer ngrams having higher weight
