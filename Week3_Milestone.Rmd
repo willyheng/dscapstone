@@ -114,7 +114,7 @@ ngrams <- lapply(c(2,3,4), function(x) {
 })
 
 predict_text("with his little")
-  
+
 ```
 
 
