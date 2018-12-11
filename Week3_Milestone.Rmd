@@ -43,7 +43,7 @@ tokens <- tokenize_file(file.path("data", "en_us", "en_US.blogs.txt"))
 ```{r}
 get_content <- function(f, n_samples = NULL) {
   con <- file(f)
-  all <- readLines(con, -1)
+  all <- readLines(con, -1, encoding="UTF-8")
   close(con)
   if (is.null(n_samples)) {
     output <- all
@@ -51,11 +51,57 @@ get_content <- function(f, n_samples = NULL) {
     set.seed(1)
     output <- sample(all, n_samples)
   }
-  data.frame(text = output, book = f, stringsAsFactors = FALSE)
+  tibble(text = output, book = f)
 }
 
-results <- get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000)
-  
+results <- get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000) 
+
+clean_blogtext <- function(text) {
+  text %>% 
+    tolower %>%
+    str_replace_all(",", " ") %>% 
+    str_replace_all("(?<=\\w)[’']d(?!\\w)", " would") %>%
+    str_replace_all("(?<!\\w)[Tt]here[’']s(?!\\w)", "there is") %>%
+    str_replace_all("(?<!\\w)[hH]ere[’']s(?!\\w)", "here is") %>%
+    str_replace_all("(?<!\\w)[tT]hat[’']s(?!\\w)", "that is") %>%
+    str_replace_all("(?<!\\w)[wW]hat[’']s(?!\\w)", "what is") %>%
+    str_replace_all("(?<!\\w)[wW]ho[’']s(?!\\w)", "who is") %>%
+    str_replace_all("(?<!\\w)[hH]e[’']s(?!\\w)", "he is") %>%
+    str_replace_all("(?<!\\w)[Ss]he[’']s(?!\\w)", "she is") %>%
+    str_replace_all("(?<!\\w)[iI]t[’']s(?!\\w)", "it is") %>%
+        str_replace_all("(?<!\\w)[lL]et[’']s(?!\\w)", "let us") %>%
+    
+    str_replace_all("(?<=\\w)n[’']t(?!\\w)", " not") %>%
+    str_replace_all("(?<=\\w)[’']ve(?!\\w)", " have") %>%
+    str_replace_all("(?<=\\w)[’']l{1,2}(?!\\w)", " will") %>%
+    str_replace_all("(?<=\\w)[’']re{0,1}(?!\\w)", " are") %>%
+    str_replace_all("(?<=\\w)[’']m(?!\\w)", " am") %>%
+    
+    str_replace_all("(?<=\\w)[’']s(?!\\w)", "") %>%
+
+    str_replace_all("[^a-zA-Z ]+", ".")
+}
+
+clean <- results %>% 
+  mutate(clean_text = clean_blogtext(text))
+
+split_sentences <- str_split(clean$clean_text, "\\.") %>% 
+  lapply(function(x) {data.frame(text = unlist(x), stringsAsFactors = FALSE)}) %>% 
+  bind_rows %>%
+  as.tibble
+
+bigrams <- split_sentences %>% 
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  count(bigram, sort = TRUE)
+
+trigrams <- split_sentences %>% 
+  unnest_tokens(trigram, text, token = "ngrams", n = 3) %>%
+  count(trigram, sort = TRUE)
+
+fourgrams <- split_sentences %>% 
+  unnest_tokens(fourgram, text, token = "ngrams", n = 4) %>%
+  count(fourgram, sort = TRUE)
+
 cleaned_sample <- sample %>% 
   str_replace_all("[’']s", " ") %>%
   str_replace_all("[’']m", " am") %>%
