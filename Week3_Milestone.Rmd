@@ -12,6 +12,7 @@ library(tm)
 library(tidyverse)
 library(stringr)
 library(ggplot2)
+library(tidytext)
 ```
 
 ## Demonstrate that you've downloaded the data and have successfully loaded it in
@@ -37,6 +38,42 @@ tokenize_file <- function(f) {
 }
 
 tokens <- tokenize_file(file.path("data", "en_us", "en_US.blogs.txt"))
+```
+
+```{r}
+get_content <- function(f, n_samples = NULL) {
+  con <- file(f)
+  all <- readLines(con, -1)
+  close(con)
+  if (is.null(n_samples)) {
+    output <- all
+  } else{
+    set.seed(1)
+    output <- sample(all, n_samples)
+  }
+  data.frame(text = output, book = f, stringsAsFactors = FALSE)
+}
+
+results <- get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000)
+  
+cleaned_sample <- sample %>% 
+  str_replace_all("[’']s", " ") %>%
+  str_replace_all("[’']m", " am") %>%
+  str_replace_all("[^a-zA-Z\\.;!:\\(\\)\\[\\]]", " ") %>% # Sentence breaks, does not include commas
+  str_replace_all(" +", " ") 
+
+split_sample <- cleaned_sample %>% 
+  str_split("[\\.;!:\\(\\)\\[\\]]") %>%
+  unlist 
+
+df <- data.frame(text = split_sample, stringsAsFactors = FALSE) %>%
+  mutate(text = str_replace(text, "^ +", ""),
+         text = str_replace(text, " +$", ""),
+         text = str_replace(text, " +", " "),
+         words = str_count(text, "\\w+")) %>%
+  filter(words > 2) %>%
+  as.tibble %>%
+  
 ```
 
 
