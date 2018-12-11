@@ -43,7 +43,7 @@ tokens <- tokenize_file(file.path("data", "en_us", "en_US.blogs.txt"))
 ```{r}
 get_content <- function(f, n_samples = NULL) {
   con <- file(f)
-  all <- readLines(con, -1)
+  all <- readLines(con, -1, encoding="UTF-8")
   close(con)
   if (is.null(n_samples)) {
     output <- all
@@ -51,35 +51,75 @@ get_content <- function(f, n_samples = NULL) {
     set.seed(1)
     output <- sample(all, n_samples)
   }
-  data.frame(text = output, book = f, stringsAsFactors = FALSE)
+  tibble(text = output, book = f)
 }
 
-results <- get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000)
+clean_blogtext <- function(text) {
+  profanities <- read.table(file.path("data", "swearWords.csv"), header = FALSE, stringsAsFactors = FALSE) %>%
+  unlist #%>% data.frame(word = .)
   
-cleaned_sample <- sample %>% 
-  str_replace_all("[’']s", " ") %>%
-  str_replace_all("[’']m", " am") %>%
-  str_replace_all("[^a-zA-Z\\.;!:\\(\\)\\[\\]]", " ") %>% # Sentence breaks, does not include commas
-  str_replace_all(" +", " ") 
+  text %>% 
+    tolower %>%
+    str_replace_all(",", " ") %>% 
+    str_replace_all("(?<=\\w)[’']d(?!\\w)", " would") %>%
+    str_replace_all("(?<!\\w)[Tt]here[’']s(?!\\w)", "there is") %>%
+    str_replace_all("(?<!\\w)[hH]ere[’']s(?!\\w)", "here is") %>%
+    str_replace_all("(?<!\\w)[tT]hat[’']s(?!\\w)", "that is") %>%
+    str_replace_all("(?<!\\w)[wW]hat[’']s(?!\\w)", "what is") %>%
+    str_replace_all("(?<!\\w)[wW]ho[’']s(?!\\w)", "who is") %>%
+    str_replace_all("(?<!\\w)[hH]e[’']s(?!\\w)", "he is") %>%
+    str_replace_all("(?<!\\w)[Ss]he[’']s(?!\\w)", "she is") %>%
+    str_replace_all("(?<!\\w)[iI]t[’']s(?!\\w)", "it is") %>%
+        str_replace_all("(?<!\\w)[lL]et[’']s(?!\\w)", "let us") %>%
+    
+    str_replace_all("(?<=\\w)n[’']t(?!\\w)", " not") %>%
+    str_replace_all("(?<=\\w)[’']ve(?!\\w)", " have") %>%
+    str_replace_all("(?<=\\w)[’']l{1,2}(?!\\w)", " will") %>%
+    str_replace_all("(?<=\\w)[’']re{0,1}(?!\\w)", " are") %>%
+    str_replace_all("(?<=\\w)[’']m(?!\\w)", " am") %>%
+    
+    str_replace_all("(?<=\\w)[’']s(?!\\w)", "") %>%
 
-split_sample <- cleaned_sample %>% 
-  str_split("[\\.;!:\\(\\)\\[\\]]") %>%
-  unlist 
+    str_replace_all("[^a-zA-Z ]+", ".") %>%
+    removeWords(profanities)
+}
 
-df <- data.frame(text = split_sample, stringsAsFactors = FALSE) %>%
-  mutate(text = str_replace(text, "^ +", ""),
-         text = str_replace(text, " +$", ""),
-         text = str_replace(text, " +", " "),
-         words = str_count(text, "\\w+")) %>%
-  filter(words > 2) %>%
-  as.tibble %>%
+predict_text <- function(input_text) {
+  if (!exists(ngrams)) stop("Please create ngrams variable")
+  input_text <- str_replace(input_text, "[^\\w]+", " ")
+  n_words <- str_count(input_text, "\\w+")
+  
+  if (n_words > 3) stop("input text is too long, only supports 3 words and below")
+  ngrams[[n_words]] %>%
+    filter(str_detect(gram, paste0("^", input_text, " ")))
+}
+
+
+
+
+results <- get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000) 
+
+clean <- results %>% 
+  mutate(clean_text = clean_blogtext(text))
+
+split_sentences <- str_split(clean$clean_text, "\\.") %>% 
+  lapply(function(x) {data.frame(text = unlist(x), stringsAsFactors = FALSE)}) %>% 
+  bind_rows %>%
+  as.tibble
+
+ngrams <- lapply(c(2,3,4), function(x) {
+  split_sentences %>% 
+  unnest_tokens(gram, text, token = "ngrams", n = x) %>%
+  count(gram, sort = TRUE)
+})
+
+predict_text("with his little")
   
 ```
 
 
 ```{r remove_profanities}
-profanities <- read.table(file.path("data", "swearWords.csv"), header = FALSE, stringsAsFactors = FALSE) %>%
-  unlist
+
 
 corp <- VCorpus(VectorSource(tokens))
 clean_corp <- corp %>% tm_map(removeWords, profanities)
