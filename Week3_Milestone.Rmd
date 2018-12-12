@@ -13,39 +13,18 @@ library(tidyverse)
 library(stringr)
 library(ggplot2)
 library(tidytext)
+library(widyr)
 ```
 
 ## Demonstrate that you've downloaded the data and have successfully loaded it in
 
-Files present in dataset:
-
-```{r load_data}
-src <- file.path("data", "en_US")
-en_us <- VCorpus(DirSource(src, encoding = "UTF-8"),
-                readerControl = list(language = "en"))
-inspect(en_us)
-```
-
-```{r read_partial}
-tokenize_file <- function(f) {
-  con <- file(f)
-  all <- readLines(con, -1)
-  close(con)
-  set.seed(1)
-  sample_keep <- rbinom(length(all), 1, 0.01) == 1
-  sample <- all[sample_keep]
-  str_extract_all(sample, "[a-zA-Z]+")
-}
-
-tokens <- tokenize_file(file.path("data", "en_us", "en_US.blogs.txt"))
-```
 
 ```{r}
 get_content <- function(f, n_samples = NULL) {
   con <- file(f)
   all <- readLines(con, -1, encoding="UTF-8")
   close(con)
-  if (is.null(n_samples)) {
+  if (is.null(n_samples) || n_samples > length(all)) {
     output <- all
   } else{
     set.seed(1)
@@ -61,50 +40,98 @@ clean_blogtext <- function(text) {
   text %>% 
     tolower %>%
     str_replace_all(",", " ") %>% 
-    str_replace_all("(?<=\\w)[’']d(?!\\w)", " would") %>%
-    str_replace_all("(?<!\\w)[Tt]here[’']s(?!\\w)", "there is") %>%
-    str_replace_all("(?<!\\w)[hH]ere[’']s(?!\\w)", "here is") %>%
-    str_replace_all("(?<!\\w)[tT]hat[’']s(?!\\w)", "that is") %>%
-    str_replace_all("(?<!\\w)[wW]hat[’']s(?!\\w)", "what is") %>%
-    str_replace_all("(?<!\\w)[wW]ho[’']s(?!\\w)", "who is") %>%
-    str_replace_all("(?<!\\w)[hH]e[’']s(?!\\w)", "he is") %>%
-    str_replace_all("(?<!\\w)[Ss]he[’']s(?!\\w)", "she is") %>%
-    str_replace_all("(?<!\\w)[iI]t[’']s(?!\\w)", "it is") %>%
-        str_replace_all("(?<!\\w)[lL]et[’']s(?!\\w)", "let us") %>%
+    str_replace_all("(?<=\\w)[\\u2019']d(?!\\w)", " would") %>%
+    str_replace_all("(?<!\\w)[Tt]here[\\u2019']s(?!\\w)", "there is") %>%
+    str_replace_all("(?<!\\w)[hH]ere[\\u2019']s(?!\\w)", "here is") %>%
+    str_replace_all("(?<!\\w)[tT]hat[\\u2019']s(?!\\w)", "that is") %>%
+    str_replace_all("(?<!\\w)[wW]hat[\\u2019']s(?!\\w)", "what is") %>%
+    str_replace_all("(?<!\\w)[wW]ho[\\u2019']s(?!\\w)", "who is") %>%
+    str_replace_all("(?<!\\w)[hH]e[\\u2019']s(?!\\w)", "he is") %>%
+    str_replace_all("(?<!\\w)[Ss]he[\\u2019']s(?!\\w)", "she is") %>%
+    str_replace_all("(?<!\\w)[iI]t[\\u2019']s(?!\\w)", "it is") %>%
+        str_replace_all("(?<!\\w)[lL]et[\\u2019']s(?!\\w)", "let us") %>%
     
-    str_replace_all("(?<=\\w)n[’']t(?!\\w)", " not") %>%
-    str_replace_all("(?<=\\w)[’']ve(?!\\w)", " have") %>%
-    str_replace_all("(?<=\\w)[’']l{1,2}(?!\\w)", " will") %>%
-    str_replace_all("(?<=\\w)[’']re{0,1}(?!\\w)", " are") %>%
-    str_replace_all("(?<=\\w)[’']m(?!\\w)", " am") %>%
+    str_replace_all("(?<=\\w)n[\\u2019']t(?!\\w)", " not") %>%
+    str_replace_all("(?<=\\w)[\\u2019']ve(?!\\w)", " have") %>%
+    str_replace_all("(?<=\\w)[\\u2019']l{1,2}(?!\\w)", " will") %>%
+    str_replace_all("(?<=\\w)[\\u2019']re{0,1}(?!\\w)", " are") %>%
+    str_replace_all("(?<=\\w)[\\u2019']m(?!\\w)", " am") %>%
     
-    str_replace_all("(?<=\\w)[’']s(?!\\w)", "") %>%
+    str_replace_all("(?<=\\w)[\\u2019']s(?!\\w)", "") %>%
 
     str_replace_all("[^a-zA-Z ]+", ".") %>%
     removeWords(profanities)
 }
 
-predict_text <- function(input_text) {
-  if (!exists(ngrams)) stop("Please create ngrams variable")
+predict_text_options <- function(input_text, words_to_use = 3) {
+  if (!exists("ngrams")) stop("Please create ngrams variable")
   input_text <- str_replace(input_text, "[^\\w]+", " ")
   n_words <- str_count(input_text, "\\w+")
   
-  if (n_words > 3) stop("input text is too long, only supports 3 words and below")
-  ngrams[[n_words]] %>%
-    filter(str_detect(gram, paste0("^", input_text, " ")))
+  if (words_to_use > 3) stop("prediction can only take place for words_to_use of 3 and below")
+  
+  if (n_words > words_to_use) {
+    input_text <- input_text %>% 
+      str_match_all("\\w+") %>% 
+      unlist %>% 
+      tail(words_to_use) %>% 
+      paste(collapse = " ")
+  } else if (words_to_use > n_words) {
+    words_to_use <- n_words
+  }
+  
+  ngrams[[words_to_use]] %>%
+    filter(str_detect(gram, paste0("^", input_text, " "))) %>%
+    mutate(prediction = str_match(gram, "\\w+$"))
 }
 
+get_corr <- function(input_text) {
+  if (!exists("word_cors")) stop("Please build word_cors variable")
+  wordlist <- input_text %>% 
+    tolower %>%
+    removeWords(stop_words$word) %>%
+    str_match_all("\\w+") %>%
+    unlist
+  
+  word_cors %>%
+    filter(item1 %in% wordlist)  %>%
+    group_by(item2) %>%
+    summarise(correlation = sum(correlation)) %>%
+    arrange(desc(correlation))
+}
 
+predict_text <- function(input_text, words_to_use = 3, show_alt = FALSE) {
+  correlations <- get_corr(input_text)
+  preds <- predict_text_options(input_text, words_to_use) 
+  
+  results <- suppressWarnings(left_join(preds, correlations, by = c("prediction" = "item2"))) %>%
+    arrange(desc(correlation)) %>%
+    filter(! prediction %in% stop_words$word)
+  
+  if (show_alt) {
+    results
+  } else {
+    head(results, 1) %>%
+    .$prediction
+  }
+}
 
+en_blogs <- get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000)  
+en_news <- get_content(file.path("data", "en_us", "en_US.news.txt"), 100000)  
+en_twitter <- get_content(file.path("data", "en_us", "en_US.twitter.txt"), 100000)  
 
-results <- get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000) 
+results <- rbind(en_blogs, en_news, en_twitter)
 
 clean <- results %>% 
-  mutate(clean_text = clean_blogtext(text))
+  mutate(clean_text = clean_blogtext(text),
+         section = 1:n())
 
-split_sentences <- str_split(clean$clean_text, "\\.") %>% 
-  lapply(function(x) {data.frame(text = unlist(x), stringsAsFactors = FALSE)}) %>% 
+
+temp <- str_split(clean$clean_text, "\\.") 
+  
+split_sentences <- lapply(1:length(temp), function(x) {data.frame(text = unlist(temp[[x]]), section = x, stringsAsFactors = FALSE)}) %>% 
   bind_rows %>%
+  filter(str_count(text, "\\w+") > 3) %>%
   as.tibble
 
 ngrams <- lapply(c(2,3,4), function(x) {
@@ -113,18 +140,37 @@ ngrams <- lapply(c(2,3,4), function(x) {
   count(gram, sort = TRUE)
 })
 
-predict_text("with his little")
+words_df <- clean %>% 
+  unnest_tokens(word, clean_text) %>%
+  filter(!word %in% stop_words$word) %>%
+  select(section, word)
+
+word_pairs <- words_df %>%
+  pairwise_count(word, section, sort = TRUE)
+
+word_cors <- words_df %>%
+  group_by(word) %>%
+  filter(n() >= 20) %>%
+  pairwise_cor(word, section, sort = TRUE) %>%
+  filter(abs(correlation) > 0.001)  ## keep ~25% of results #quantile(abs(correlation), 0.75
+
 
 ```
 
 
-```{r remove_profanities}
+```{r calc_corr}
+
+word_cors %>%
+  filter(item1 == "bought", item2 == "beer") 
+
+get_corr("The guy in front of me just bought a pound of bacon, a bouquet, and a case of")
 
 
-corp <- VCorpus(VectorSource(tokens))
-clean_corp <- corp %>% tm_map(removeWords, profanities)
-
-tdm <- TermDocumentMatrix(clean_corp)
+input_text <- "The guy in front of me just bought a pound of bacon, a bouquet, and a case of"
+input_text <- "Go on a romantic date at the"
+predict_text(input_text, words_to_use = 2, show_alt = TRUE)
+get_corr(input_text) %>% filter(str_detect(item2, "happ"))
+predict_text_options(input_text, words_to_use = 3) 
 ```
 ## Create a basic report of summary statistics about the data sets.
 
