@@ -14,6 +14,7 @@ library(stringr)
 library(ggplot2)
 library(tidytext)
 library(widyr)
+
 ```
 
 ## Demonstrate that you've downloaded the data and have successfully loaded it in
@@ -34,8 +35,14 @@ get_content <- function(f, n_samples = NULL) {
 }
 
 clean_blogtext <- function(text) {
-  profanities <- read.table(file.path("data", "swearWords.csv"), header = FALSE, stringsAsFactors = FALSE) %>%
+  
+  profanities <- tryCatch(read.table(file.path("data", "swearWords.csv"), header = FALSE, stringsAsFactors = FALSE) %>%
   unlist #%>% data.frame(word = .)
+  ,
+  error = function(e) {
+    warning(e)
+    c("")
+  })
   
   text %>% 
     tolower %>%
@@ -101,12 +108,19 @@ get_corr <- function(input_text) {
 }
 
 predict_text <- function(input_text, words_to_use = 3, show_alt = FALSE) {
+  input_text <- clean_blogtext(input_text)
   correlations <- get_corr(input_text)
   preds <- predict_text_options(input_text, words_to_use) 
   
+  reduced_stop_words <- c("a", "the", "and", "i", "of")
+  
   results <- suppressWarnings(left_join(preds, correlations, by = c("prediction" = "item2"))) %>%
     arrange(desc(correlation)) %>%
-    filter(! prediction %in% stop_words$word)
+    filter(! prediction %in% reduced_stop_words)
+  
+  if (nrow(results) == 0) {
+    results <- predict_text(input_text, words_to_use = words_to_use - 1, show_alt = TRUE)
+  }
   
   if (show_alt) {
     results
@@ -134,26 +148,38 @@ split_sentences <- lapply(1:length(temp), function(x) {data.frame(text = unlist(
   filter(str_count(text, "\\w+") > 3) %>%
   as.tibble
 
+rm(temp)
+
+system.time(
 ngrams <- lapply(c(2,3,4), function(x) {
   split_sentences %>% 
   unnest_tokens(gram, text, token = "ngrams", n = x) %>%
-  count(gram, sort = TRUE)
+  count(gram, sort = TRUE) %>%
+    filter(n > 1)
 })
+)
 
 words_df <- clean %>% 
   unnest_tokens(word, clean_text) %>%
   filter(!word %in% stop_words$word) %>%
   select(section, word)
 
-word_pairs <- words_df %>%
-  pairwise_count(word, section, sort = TRUE)
-
+#word_pairs <- words_df %>%
+#  pairwise_count(word, section, sort = TRUE)
+system.time(
 word_cors <- words_df %>%
   group_by(word) %>%
-  filter(n() >= 20) %>%
+  filter(n() >= 40) %>%
   pairwise_cor(word, section, sort = TRUE) %>%
-  filter(abs(correlation) > 0.001)  ## keep ~25% of results #quantile(abs(correlation), 0.75
+  filter(abs(correlation) > 0.001)  ## keep ~25% of results #quantile(abs(correlation), 0.75 
+  #.[seq(1, nrow(word_cors), 2),] # Remove duplicates
+)
 
+#saveRDS(word_cors, "word_cors.rds")
+#saveRDS(ngrams, "ngrams.rds")
+
+if (!exists("word_cors")) word_cors <- readRDS("word_cors.rds")
+if (!exists("ngrams")) ngrams <- readRDS("ngrams.rds")
 
 ```
 
@@ -165,63 +191,25 @@ word_cors %>%
 
 get_corr("The guy in front of me just bought a pound of bacon, a bouquet, and a case of")
 
-
 input_text <- "The guy in front of me just bought a pound of bacon, a bouquet, and a case of"
 input_text <- "Go on a romantic date at the"
-predict_text(input_text, words_to_use = 2, show_alt = TRUE)
-get_corr(input_text) %>% filter(str_detect(item2, "happ"))
-predict_text_options(input_text, words_to_use = 3) 
+input_text <- "Very early observations on the Bills game: Offense still struggling but the"
+input_text <- "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my"
+input_text <- "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some"
+input_text <- "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little"
+input_text <- "Be grateful for the good times and keep the faith during the"
+input_text <- "If this isn't the cutest thing you've ever seen, then you must be"
+input_text <- "When you breathe, I want to be the air for you. I'll be there for you, I'd live and I'd"
+input_text <- "Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his"
+input_text <- "I'd give anything to see arctic monkeys this"
+input_text <- "Talking to your mom has the same effect as a hug and helps reduce your"
+input_text <- "When you were in Holland you were like 1 inch away from me but you hadn't time to take a"
+input_text <- "I'd just like all of these questions answered, a presentation of evidence, and a jury to settle the"
+input_text <- "I can't deal with unsymetrical things. I can't even hold an uneven number of bags of groceries in each"
+input_text <- "Every inch of you is perfect from the bottom to the"
+input_text <- "I'm thankful my childhood was filled with imagination and bruises from playing"
+input_text <- "I like how the same people are in almost all of Adam Sandler's"
+
+
+predict_text(input_text)
 ```
-## Create a basic report of summary statistics about the data sets.
-
-### Stats
-
-```{r line_counts}
-suppressWarnings(
-  word_count <- lapply(en_us, function(x) 
-    sum(unlist(map(x, 
-                   ~str_count(., '\\w+')))))
-)
-
-line_count <- lapply(en_us, function(x) length(x$content))
-
-df <- data.frame(file = names(word_count), word_count = unlist(word_count), line_count = unlist(line_count))
-
-df %>% ggplot(aes(y = word_count, x = file, fill = file)) + 
-  geom_col() + 
-  labs(title = "Word count in files")
-
-df %>% ggplot(aes(y = line_count, x = file, fill = file)) + 
-  geom_col() + 
-  labs(title = "Line count in files")
-```
-
-### Samples from each source
-
-#### Blogs
-
-```{r}
-head(en_us[[1]]$content, 5)
-```
-
-#### News
-
-```{r}
-head(en_us[[2]]$content, 5)
-```
-
-#### Twitter
-
-```{r}
-head(en_us[[3]]$content, 5)
-```
-
-### Sample terms in the documents
-
-```{r}
-inspect(tdm)
-```
-
-## Goal for app
-
-I plan to make an interactive Shiny app to predict words. The user can key in a sentence and it will predict the next word in the sentence. I plan to use ngrams for the predictive algorithm, with longer ngrams having higher weight
