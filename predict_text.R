@@ -1,26 +1,3 @@
----
-title: "Milestone Report"
-output:
-  html_document:
-    df_print: paged
----
-
-# Exploratory Analysis for text
-
-```{r setup, message=FALSE}
-library(tm)
-library(tidyverse)
-library(stringr)
-library(ggplot2)
-library(tidytext)
-library(widyr)
-
-```
-
-## Demonstrate that you've downloaded the data and have successfully loaded it in
-
-
-```{r}
 get_content <- function(f, n_samples = NULL) {
   con <- file(f)
   all <- readLines(con, -1, encoding="UTF-8")
@@ -115,11 +92,15 @@ predict_text <- function(input_text, words_to_use = 3, show_alt = FALSE) {
   reduced_stop_words <- c("a", "the", "and", "i", "of")
   
   results <- suppressWarnings(left_join(preds, correlations, by = c("prediction" = "item2"))) %>%
-    arrange(desc(correlation)) %>%
+    arrange(desc(correlation), desc(n)) %>%
     filter(! prediction %in% reduced_stop_words)
   
   if (nrow(results) == 0) {
-    results <- predict_text(input_text, words_to_use = words_to_use - 1, show_alt = TRUE)
+    if (words_to_use > 1) {
+      results <- predict_text(input_text, words_to_use = words_to_use - 1, show_alt = TRUE)
+    } else {
+      results <- NULL
+    }
   }
   
   if (show_alt) {
@@ -130,82 +111,52 @@ predict_text <- function(input_text, words_to_use = 3, show_alt = FALSE) {
   }
 }
 
-clean <- rbind(get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000), 
+# Initialize results
+
+if (file.exists(file.path("data", "word_cors.rds")) & file.exists(file.path("data", "ngrams.rds"))) {
+  word_cors <- readRDS(file.path("data", "word_cors.rds"))
+  ngrams <- readRDS(file.path("data", "ngrams.rds"))
+} else {
+  clean <- rbind(get_content(file.path("data", "en_us", "en_US.blogs.txt"), 100000), 
                  get_content(file.path("data", "en_us", "en_US.news.txt"), 100000), 
                  get_content(file.path("data", "en_us", "en_US.twitter.txt"), 100000)) %>% 
-  mutate(clean_text = clean_blogtext(text),
-         section = 1:n())
-
-
-temp <- str_split(clean$clean_text, "\\.") 
+    mutate(clean_text = clean_blogtext(text),
+           section = 1:n())
   
-split_sentences <- lapply(1:length(temp), function(x) {data.frame(text = unlist(temp[[x]]), section = x, stringsAsFactors = FALSE)}) %>% 
-  bind_rows %>%
-  filter(str_count(text, "\\w+") > 3) %>%
-  as.tibble
-
-rm(temp)
-
-system.time(
-ngrams <- lapply(c(2,3,4), function(x) {
-  split_sentences %>% 
-  unnest_tokens(gram, text, token = "ngrams", n = x) %>%
-  count(gram, sort = TRUE) %>%
-    filter(n > 1)
-})
-)
-
-words_df <- clean %>% 
-  unnest_tokens(word, clean_text) %>%
-  filter(!word %in% stop_words$word) %>%
-  select(section, word)
-
-#word_pairs <- words_df %>%
-#  pairwise_count(word, section, sort = TRUE)
-system.time(
-word_cors <- words_df %>%
-  group_by(word) %>%
-  filter(n() >= 40) %>%
-  pairwise_cor(word, section, sort = TRUE) %>%
-  filter(abs(correlation) > 0.001)  ## keep ~25% of results #quantile(abs(correlation), 0.75 
-  #.[seq(1, nrow(word_cors), 2),] # Remove duplicates
-)
-
-#saveRDS(word_cors, "word_cors.rds")
-#saveRDS(ngrams, "ngrams.rds")
-
-if (!exists("word_cors")) word_cors <- readRDS("word_cors.rds")
-if (!exists("ngrams")) ngrams <- readRDS("ngrams.rds")
-
-```
-
-
-```{r calc_corr}
-
-word_cors %>%
-  filter(item1 == "bought", item2 == "beer") 
-
-get_corr("The guy in front of me just bought a pound of bacon, a bouquet, and a case of")
-
-input_text <- "The guy in front of me just bought a pound of bacon, a bouquet, and a case of"
-input_text <- "Go on a romantic date at the"
-input_text <- "Very early observations on the Bills game: Offense still struggling but the"
-input_text <- "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my"
-input_text <- "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some"
-input_text <- "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little"
-input_text <- "Be grateful for the good times and keep the faith during the"
-input_text <- "If this isn't the cutest thing you've ever seen, then you must be"
-input_text <- "When you breathe, I want to be the air for you. I'll be there for you, I'd live and I'd"
-input_text <- "Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his"
-input_text <- "I'd give anything to see arctic monkeys this"
-input_text <- "Talking to your mom has the same effect as a hug and helps reduce your"
-input_text <- "When you were in Holland you were like 1 inch away from me but you hadn't time to take a"
-input_text <- "I'd just like all of these questions answered, a presentation of evidence, and a jury to settle the"
-input_text <- "I can't deal with unsymetrical things. I can't even hold an uneven number of bags of groceries in each"
-input_text <- "Every inch of you is perfect from the bottom to the"
-input_text <- "I'm thankful my childhood was filled with imagination and bruises from playing"
-input_text <- "I like how the same people are in almost all of Adam Sandler's"
-
-
-predict_text(input_text)
-```
+  temp <- str_split(clean$clean_text, "\\.") 
+  
+  split_sentences <- lapply(1:length(temp), function(x) {data.frame(text = unlist(temp[[x]]), section = x, stringsAsFactors = FALSE)}) %>% 
+    bind_rows %>%
+    filter(str_count(text, "\\w+") > 3) %>%
+    as.tibble
+  
+  rm(temp)
+  
+  system.time(
+    ngrams <- lapply(c(2,3,4), function(x) {
+      split_sentences %>% 
+        unnest_tokens(gram, text, token = "ngrams", n = x) %>%
+        count(gram, sort = TRUE) %>%
+        filter(n > 1)
+    })
+  )
+  
+  words_df <- clean %>% 
+    unnest_tokens(word, clean_text) %>%
+    filter(!word %in% stop_words$word) %>%
+    select(section, word)
+  
+  #word_pairs <- words_df %>%
+  #  pairwise_count(word, section, sort = TRUE)
+  system.time(
+    word_cors <- words_df %>%
+      group_by(word) %>%
+      filter(n() >= 40) %>%
+      pairwise_cor(word, section, sort = TRUE) %>%
+      filter(abs(correlation) > 0.001)  ## keep ~25% of results #quantile(abs(correlation), 0.75 
+    #.[seq(1, nrow(word_cors), 2),] # Remove duplicates
+  )
+  
+  saveRDS(word_cors, "word_cors.rds")
+  saveRDS(ngrams, "ngrams.rds")
+}
